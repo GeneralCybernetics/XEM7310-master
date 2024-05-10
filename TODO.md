@@ -1,7 +1,7 @@
 VERIFICATION:
 
-1. Check if the init code works
-2. Check if the register stimulates as intended
+1. Check if the init code works [YES]
+2. Check if the register stimulates as intended [NO]
 
 LATER:
 
