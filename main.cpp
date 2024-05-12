@@ -25,7 +25,7 @@ int main() {
     rhxController->enableDataStream(0, true);
 
     // We can set the MISO sampling delay which is dependent on the sample rate.  We assume a 3-foot cable.
-    rhxController->setCableLengthFeet(PortA, 3.0); //[TO SET]
+    rhxController->setCableLengthFeet(PortA, 3.0);
 
     // Let's turn one LED on to indicate that the program is running.
     int ledArray[8] = {1, 0, 0, 0, 0, 0, 0, 0};
@@ -70,12 +70,16 @@ int main() {
     int eventEndStim = eventStimPhase2 + secondPhaseDuration;
     int eventEnd = eventEndStim + refractoryPeriod;
     int eventRepeatStim = Never; // since we are not a PulseTrain and just a single stim
-    int eventAmpSettleOn;
-    int eventAmpSettleOff;
-    int eventAmpSettleOnRepeat;
-    int eventAmpSettleOffRepeat;
-    int eventChargeRecovOn;
-    int eventChargeRecovOff;
+    int eventAmpSettleOn = Never; //got this from Intan RHX github line 1299
+    int eventAmpSettleOff = 0; //got this from Intan RHX github line 1300
+    int eventAmpSettleOnRepeat = Never; //got this from Intan RHX github line 1301
+    int eventAmpSettleOffRepeat = Never; //got this from Intan RHX github line 1302
+    int eventChargeRecovOn = Never; //got this from Intan RHX github line 1308
+    int eventChargeRecovOff = 0; //got this from Intan RHX github line 1309
+    int dacBaseline = 32768; //32768 is the midvalue, don't worry about this now, since it is concerned with after stim effects and affects reading
+    int dacPositive = 32768; //same
+    int dacNegative = 32768; //same
+
 
     for (int i = 0; i < totalChannels; i++){
         channel = i;
@@ -104,73 +108,54 @@ int main() {
         rhxController->programStimReg(stream, 0, AbstractRHXController::DacNegative, dacNegative);
     }
 
-    
-    
-
     //Setup for RHS2116 Registers
-    
-
-    
-
-
-
 
     RHXRegisters *chipRegisters = new RHXRegisters(rhxController->getType(), rhxController->getSampleRate(), StimStepSize10nA);
     chipRegisters->setStimEnable(true); // this enables Stimulation, prev we defined the Stim size to be 10nA
     for (int i = 0; i < 16; i++){
         //first let's just test this for the 16 electrodes
-        chipRegisters->setPosStimMagnitude(i, 200);
-        chipRegisters->setNegStimMagnitude(i, 200);
+        chipRegisters->setPosStimMagnitude(i, 200, 0); //[TO CHECK]: check these values just to be sure, but they should mostly work
+        chipRegisters->setNegStimMagnitude(i, 200, 0); //[TO CHECK]: check these values just to be sure, but they should mostly work
     }
 
-
-
-
-
-
-    double dspCutoffFreq;
-    dspCutoffFreq = chipRegisters->setDspCutoffFreq(10.0);  // 10 Hz DSP cutoff
-    cout << " Actual DSP cutoff frequency: " << dspCutoffFreq << " Hz" << endl;
-    chipRegisters->setLowerBandwidth(1.0);      // 1.0 Hz lower bandwidth
-    chipRegisters->setUpperBandwidth(7500.0);   // 7.5 kHz upper bandwidth
-
     
-    // First, let's create a command list for the AuxCmd1 slot to configure and read back the RHS chip registers.
     int commandSequenceLength;
     vector<unsigned int> commandList;
-    commandSequenceLength = chipRegisters->createCommandListRHSRegisterConfig(commandList, true);
+    commandSequenceLength = chipRegisters->createCommandListSetStimMagnitudes(commandList, channel, 200, 0, 200, 0);
+    rhxController->uploadCommandList(commandList, AbstractRHXController::AuxCmd1, 0);
+    rhxController->selectAuxCommandLength(AbstractRHXController::AuxCmd1, 0, commandSequenceLength - 1);
+    chipRegisters->createCommandListDummy(commandList, 8192, chipRegisters->createRHXCommand(RHXRegisters::RHXCommandRegRead, 255));
+    rhxController->uploadCommandList(commandList, AbstractRHXController::AuxCmd2, 0);
+    rhxController->uploadCommandList(commandList, AbstractRHXController::AuxCmd3, 0);
+    rhxController->uploadCommandList(commandList, AbstractRHXController::AuxCmd4, 0);
 
-    // Upload command sequence to AuxCmd1.
-    rhxController->uploadCommandList(commandList, RHXController::AuxCmd1);
-    rhxController->selectAuxCommandLength(RHXController::AuxCmd1, 0, commandSequenceLength - 1);
-    rhxController->printCommandList(commandList); //print the command list
-
-
-    //creating a command to create sin wave of 100Hz and Amplitude of 128 (in DAC steps??, range 0-128)
-    commandSequenceLength = chipRegisters->createCommandListZcheckDac(commandList, 100.0, 128.0);
-    rhxController->uploadCommandList(commandList, RHXController::AuxCmd2);
-    rhxController->selectAuxCommandLength(RHXController::AuxCmd2, 0, commandSequenceLength - 1);
-    rhxController->printCommandList(commandList); //print the command list
-
-
-    // We'll upload dummy command sequences to slots AuxCmd3 and AuxCmd4.
-    commandSequenceLength = chipRegisters->createCommandListDummy(commandList, 128, chipRegisters->createRHXCommand(RHXRegisters::RHXCommandRegRead, 255));
-    rhxController->uploadCommandList(commandList, RHXController::AuxCmd3);
-    rhxController->uploadCommandList(commandList, RHXController::AuxCmd4);
-    rhxController->selectAuxCommandLength(RHXController::AuxCmd3, 0, commandSequenceLength - 1);
-    rhxController->selectAuxCommandLength(RHXController::AuxCmd4, 0, commandSequenceLength - 1);
-    rhxController->printCommandList(commandList); //print the command list
-
-    // Since our longest command sequence is 128 commands, let's just run the SPI interface for 128 samples.
-    rhxController->setMaxTimeStep(128);
+    rhxController->setMaxTimeStep(commandSequenceLength);
     rhxController->setContinuousRunMode(false);
+    rhxController->setStimCmdMode(false); //we want the autostimcommand mode off, cause then the stim commands are ignored and the aux1,2,3,4 commands are talen
+    rhxController->enableAuxCommandsOnOneStream(stream);
+
+    rhxController->setMaxTimeStep(commandSequenceLength);
+    rhxController->setContinuousRunMode(false);
+    rhxController->setStimCmdMode(false);
+    rhxController->enableAuxCommandsOnOneStream(stream);
+
 
     // Start SPI interface.
     rhxController->run();
     // Wait for the 128-sample run to complete.
     while (rhxController->isRunning()) { }
 
-    //[VERIFICATION]: We should observe a sin wave with 100Hz Frequency and 128 DAC (??) Amplitude ?
+    //the next part is for safety
+
+    commandSequenceLength = chipRegisters->createCommandListRHSRegisterRead(commandList);
+    rhxController->uploadCommandList(commandList, AbstractRHXController::AuxCmd1, 0);
+    rhxController->selectAuxCommandLength(AbstractRHXController::AuxCmd1, 0, commandSequenceLength - 1);
+    rhxController->run();
+    while (rhxController->isRunning() ) {}
+
+    rhxController->enableAuxCommandsOnAllStreams();
+
+    //[VERIFICATION]: When we press F2, should observe a square wave with the above parameters
 
     ///////////////////////////////////////////////////////////
     ////////////REGISTER INIT SEQUENCE ENDS///////////////////
