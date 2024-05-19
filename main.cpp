@@ -31,7 +31,7 @@ int main() {
     int ledArray[8] = {1, 0, 0, 0, 0, 0, 0, 0};
     rhxController->setLedDisplay(ledArray);
 
-    //[VERIFICATION]: If the LED lights up, the Initilization was successful
+    //[VERIFIED: THE CODE TILL ABOVE HAS BEEN VERIFIED]
 
     ///////////////////////////////////////////////////////////
     /////////////////////INIT SEQUENCE ENDS////////////////////
@@ -42,13 +42,22 @@ int main() {
     ///////////////////////////////////////////////////////////
 
     //safety measure to make sure this is always run with real hardware
-    if (rhxController->isSynthetic() || rhxController->isPlayback()) return;
+    if (rhxController->isSynthetic() || rhxController->isPlayback()){
+        std::cout << "A REAL XEM7310 IS NOT CONNECTED, DISCONNECTING" ;
+        return 0;
+    } 
+
+    RHXRegisters *chipRegisters = new RHXRegisters(rhxController->getType(), rhxController->getSampleRate(), StimStepSize10nA);
+
+
 
     const int Never = 65535; // a const defined by intan
 
     int stream = 0; // [TO SET]: I think this is about the total RHS2116, so (1-8) I think
     int channel = 0; // [TO SET]: I think this is talking about the electrodes so there should be 32 per chip
     int triggerSource = 25; // [TO SET] 0-15 is Digital in Port on FPGA, 16-23 is Analog I/O on FPGA, 24-31 software triggers (F1-F8)
+
+    //for now 16 should be ok, later replace this with: chipRegisters->maxNumChannelsPerChip(ControllerStimRecord);
     int totalChannels = 16;  //we are only trying on the first 16 channels first and then later we can extend this to however many channels we want
     int numPulse = 1; // we can later make this a train instead
     int enabled = 1; //must be one if you want to stim
@@ -110,14 +119,19 @@ int main() {
 
     //Setup for RHS2116 Registers
 
-    RHXRegisters *chipRegisters = new RHXRegisters(rhxController->getType(), rhxController->getSampleRate(), StimStepSize10nA);
-    chipRegisters->setStimEnable(true); // this enables Stimulation, prev we defined the Stim size to be 10nA
-    for (int i = 0; i < 16; i++){
-        //first let's just test this for the 16 electrodes
-        chipRegisters->setPosStimMagnitude(i, 200, 0); //[TO CHECK]: check these values just to be sure, but they should mostly work
-        chipRegisters->setNegStimMagnitude(i, 200, 0); //[TO CHECK]: check these values just to be sure, but they should mostly work
-    }
+    chipRegisters->setStimEnable(true); // this enables Stimulation 
+    chipRegisters->setStimStepSize(StimStepSize10nA); //setting the stim stepSize 10nA
 
+    for (int i = 0; i < totalChannels; i++){
+        //first let's just test this for the 16 electrodes
+        int magSetter1 = chipRegisters->setPosStimMagnitude(i, 200, 0); //[TO CHECK]: check these values just to be sure, but they should mostly work
+        int magSetter2 = chipRegisters->setNegStimMagnitude(i, 200, 0); //[TO CHECK]: check these values just to be sure, but they should mostly work
+
+        if (magSetter1 == -1 || magSetter2 == -1){
+            std::cout << "ERROR WHILE SETTING MAGNITUDE: OUT OF RANGE";
+        }
+    }
+    
     
     int commandSequenceLength;
     vector<unsigned int> commandList;
@@ -132,21 +146,21 @@ int main() {
     rhxController->setMaxTimeStep(commandSequenceLength);
     rhxController->setContinuousRunMode(false);
     rhxController->setStimCmdMode(false); //we want the autostimcommand mode off, cause then the stim commands are ignored and the aux1,2,3,4 commands are talen
-    rhxController->enableAuxCommandsOnOneStream(stream);
+    //rhxController->enableAuxCommandsOnOneStream(stream);
 
     rhxController->setMaxTimeStep(commandSequenceLength);
-    rhxController->setContinuousRunMode(false);
     rhxController->setStimCmdMode(false);
-    rhxController->enableAuxCommandsOnOneStream(stream);
+    //rhxController->enableAuxCommandsOnOneStream(stream);
+    rhxController->enableAuxCommandsOnAllStreams();
 
 
+    rhxController->setContinuousRunMode(true);
     // Start SPI interface.
     rhxController->run();
     // Wait for the 128-sample run to complete.
     while (rhxController->isRunning()) { }
 
     //the next part is for safety
-
     commandSequenceLength = chipRegisters->createCommandListRHSRegisterRead(commandList);
     rhxController->uploadCommandList(commandList, AbstractRHXController::AuxCmd1, 0);
     rhxController->selectAuxCommandLength(AbstractRHXController::AuxCmd1, 0, commandSequenceLength - 1);
