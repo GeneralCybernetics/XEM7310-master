@@ -1,8 +1,8 @@
-CXX := arch -x86_64 clang++
+CXX := g++
 CXXFLAGS := -std=c++11
 LDFLAGS := -L./lib -lokFrontPanel
-DYLD_LIBRARY_PATH := ./lib
-export DYLD_LIBRARY_PATH
+LD_LIBRARY_PATH := ./lib
+export LD_LIBRARY_PATH
 SOURCES := $(wildcard *.cpp)
 OBJECTS := $(SOURCES:.cpp=.o)
 EXECUTABLE := test
@@ -10,13 +10,13 @@ EXECUTABLE := test
 all: $(EXECUTABLE)
 
 $(EXECUTABLE): $(OBJECTS)
-	$(CXX) $(LDFLAGS) -o $@ $^
+	$(CXX) $(OBJECTS) $(LDFLAGS) -o $@
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $<
 
-run:
-	./$(EXECUTABLE)
+run: $(EXECUTABLE)
+	LD_LIBRARY_PATH=$(LD_LIBRARY_PATH) ./$(EXECUTABLE)
 
 clean:
 	rm -f $(OBJECTS) $(EXECUTABLE)
